@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  ical-pronote:
+    build:
+      context: .
+      args:
+        PAWNOTE_PKG: ${PAWNOTE_PKG}
+    image: ical-pronote:latest
+    container_name: ical-pronote
+    ports:
+      - "3000:3000"
+    environment:
+      - PRONOTE_URL=${PRONOTE_URL}
+      - PRONOTE_USERNAME=${PRONOTE_USERNAME}
+      - PRONOTE_PASSWORD=${PRONOTE_PASSWORD}
+      - PRONOTE_CAS=${PRONOTE_CAS:-none}
+      - REFRESH_MINUTES=${REFRESH_MINUTES:-15}
+      - MATCH_WINDOW_MINUTES=${MATCH_WINDOW_MINUTES:-90}
+      - STATE_PATH=/data/event-state.json
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:
+    driver: local

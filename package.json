@@ -1,0 +1,23 @@
+{
+  "name": "ical-pronote",
+  "version": "0.1.0",
+  "description": "Serveur iCal pour Pronote (UID stables + synchro)",
+  "main": "index.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ical-generator": "^5.0.0"
+  },
+  "optionalDependencies": {
+    "pawnote.js": "*",
+    "pawnote": "*"
+  }
+}
+
