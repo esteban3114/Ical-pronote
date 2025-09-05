@@ -106,14 +106,13 @@ function sha256Hex(input) {
 }
 
 // UID stable sans dépendre des IDs chiffrés : jour + matière + groupes + index du jour
-function buildStableUid({ dateKey, subject, groups, indexInDay, userName }) {
+function buildStableUid({ dateKey, subject, indexInDay, userName }) {
   const base = [
     'ical-pronote',
     normalize(PRONOTE_URL || ''),
     normalize(userName || ''),
     dateKey,
     normalize(subject),
-    normalize(groups || ''),
     String(indexInDay ?? 0),
   ].join('\u001F');
   return `${sha256Hex(base).slice(0, 32)}@ical-pronote`;
@@ -137,7 +136,11 @@ function fuzzyFindUid(matchKey, startISO, usedUids) {
   const targetStart = new Date(startISO).getTime();
   const windowMs = MATCH_WINDOW_MINUTES * 60 * 1000;
   for (const [uid, st] of eventState.entries()) {
-    if (st.matchKey !== matchKey) continue;
+    // Backward-compat: older state stored matchKey including groups.
+    // Accept either exact match (date|subject) or legacy (date|subject|groups).
+    const stKey = st.matchKey || '';
+    const keyMatches = (stKey === matchKey) || stKey.startsWith(`${matchKey}|`);
+    if (!keyMatches) continue;
     if (usedUids.has(uid)) continue;
     const prevStart = new Date(st.start || 0).getTime();
     if (!Number.isFinite(prevStart)) continue;
@@ -171,21 +174,28 @@ async function generateIcal() {
 
     console.log(`Traitement de ${timetable.length} cours...`);
 
-    // Grouper par (date, matière, groupes) pour obtenir un index stable
+    // Grouper par (date, matière) pour obtenir un index stable
     const byKey = new Map();
     for (const c of timetable) {
       const day = new Date(c.from);
       const dateKey = day.toISOString().slice(0, 10); // YYYY-MM-DD
       const subject = normalize(c.subject);
-      const groups = Array.isArray(c.groups)
-        ? c.groups.map(normalize).sort().join('|')
-        : normalize(c.group || '');
-      const mk = `${dateKey}|${subject}|${groups}`;
+      const mk = `${dateKey}|${subject}`;
       if (!byKey.has(mk)) byKey.set(mk, []);
       byKey.get(mk).push(c);
     }
     for (const list of byKey.values()) {
-      list.sort((a, b) => new Date(a.from) - new Date(b.from));
+      list.sort((a, b) => {
+        const d = new Date(a.from) - new Date(b.from);
+        if (d !== 0) return d;
+        const aGroups = Array.isArray(a.groups) ? a.groups.join('|') : (a.group || '');
+        const bGroups = Array.isArray(b.groups) ? b.groups.join('|') : (b.group || '');
+        const aKey = normalize(`${a.teacher || ''}|${a.room || ''}|${aGroups}`);
+        const bKey = normalize(`${b.teacher || ''}|${b.room || ''}|${bGroups}`);
+        if (aKey < bKey) return -1;
+        if (aKey > bKey) return 1;
+        return 0;
+      });
     }
 
     const usedUids = new Set();
@@ -193,17 +203,47 @@ async function generateIcal() {
       const day = new Date(course.from);
       const dateKey = day.toISOString().slice(0, 10);
       const subject = normalize(course.subject);
-      const groups = Array.isArray(course.groups)
-        ? course.groups.map(normalize).sort().join('|')
-        : normalize(course.group || '');
-      const mk = `${dateKey}|${subject}|${groups}`;
+      const mk = `${dateKey}|${subject}`;
       const indexInDay = byKey.get(mk)?.indexOf(course) ?? 0;
+
+      // Affichage des groupes (classes) pour les rendre visibles et versionnés
+      const groupsDisplay = Array.isArray(course.groups)
+        ? course.groups.filter(Boolean).join(', ')
+        : (course.group || '');
+
+      // Mise en forme proche de l'ICAL officiel
+      const groupMain = (course.group || '').trim();
+      const groupMainBracket = groupMain ? `[${groupMain}]` : '';
+      const subParts = Array.isArray(course.groups) ? course.groups.filter(Boolean) : [];
+      const partsDeClasse = subParts.map(g => {
+        const base = String(g).split('_')[0] || String(g);
+        return `<${base}> ${g}`;
+      }).join(', ');
+
+      const statusText = String(course.status || course.info || '').toLowerCase();
+      const teacherAbsent = Boolean(course.teacherAbsent || course.isTeacherAbsent || /absent/.test(statusText));
+      const titlePrefix = teacherAbsent ? 'Prof. absent : ' : '';
+
+      const titlePieces = [
+        course.subject || 'Cours',
+        course.teacher ? String(course.teacher) : null,
+        groupMainBracket || null,
+        partsDeClasse ? partsDeClasse : null,
+      ].filter(Boolean);
+      const summaryText = `${titlePrefix}${titlePieces.join(' - ')}`;
+
+      const descriptionLines = [];
+      if (teacherAbsent) descriptionLines.push('Prof. absent');
+      descriptionLines.push(`Matière : ${course.subject || 'N/A'}`);
+      if (course.teacher) descriptionLines.push(`Professeur : ${course.teacher}`);
+      if (groupMain) descriptionLines.push(`Groupe : [${groupMain}]`);
+      if (partsDeClasse) descriptionLines.push(`Parties de classe : ${partsDeClasse}`);
 
       const evtBase = {
         start: course.from,
         end: course.to,
-        summary: course.subject,
-        description: `Professeur: ${course.teacher || 'N/A'}\nSalle: ${course.room || 'N/A'}`,
+        summary: summaryText,
+        description: descriptionLines.join('\\n'),
         location: course.room || '',
       };
 
@@ -212,7 +252,6 @@ async function generateIcal() {
         uid = buildStableUid({
           dateKey,
           subject,
-          groups,
           indexInDay,
           userName: session.user.name,
         });

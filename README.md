@@ -37,3 +37,8 @@ PRONOTE_URL=... PRONOTE_USERNAME=... PRONOTE_PASSWORD=... PRONOTE_CAS=none node 
 ## Dépendance `pawnote`
 Le code essaie `require('pawnote.js')` puis `require('pawnote')`. Si votre lib a un autre nom, adaptez `index.js` ou exposez-la sous l'un de ces alias via `package.json`.
 
+## Notes sur les classes/groupes
+- Les classes/groupes sont maintenant affichés dans la description des événements iCal.
+- Un changement de classe met à jour l'événement existant (même UID) avec incrément de `SEQUENCE`.
+- La correspondance d'UID n'inclut plus les groupes pour éviter la création de nouveaux événements lors d'un changement de classe.
+- Compatibilité ascendante: les anciens `matchKey` stockés comme `date|matière|groupes` sont toujours reconnus pour réutiliser les UID existants.
